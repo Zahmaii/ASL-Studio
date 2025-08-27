@@ -4,17 +4,17 @@ import streamlit as st
 import cv2
 import math
 from ultralytics import YOLO
-import speech_recognition as sr
 import random
 from streamlit_option_menu import option_menu
 import time
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, AudioProcessorBase, WebRtcMode
 import av
+import numpy as np
+import speech_recognition as sr
 
 # ASL Class Names
 classNames = [chr(i) for i in range(65, 91)]  # A-Z
 model = YOLO("best-lite.pt")  # Load once globally
-
 
 # ----------------------
 # Custom Video Transformer for ASL Detection
@@ -43,6 +43,31 @@ class ASLTransformer(VideoTransformerBase):
 
         return img
 
+# ----------------------
+# Custom Audio Processor for Speech-to-Text
+# ----------------------
+class SpeechToTextProcessor(AudioProcessorBase):
+    def __init__(self) -> None:
+        self.recognizer = sr.Recognizer()
+        self.text = "Listening..."
+
+    def recv_audio(self, frame: av.AudioFrame) -> av.AudioFrame:
+        # Convert to numpy array
+        audio = frame.to_ndarray()
+        # Convert stereo to mono
+        if audio.ndim > 1:
+            audio = np.mean(audio, axis=1).astype(np.int16)
+
+        # Feed to SpeechRecognition
+        try:
+            audio_data = sr.AudioData(audio.tobytes(), frame.sample_rate, 2)
+            self.text = self.recognizer.recognize_google(audio_data)
+        except sr.UnknownValueError:
+            self.text = "Could not understand audio"
+        except sr.RequestError:
+            self.text = "API unavailable"
+
+        return frame
 
 # ----------------------
 # Streamlit Page Config
@@ -71,23 +96,23 @@ with st.sidebar:
 # SPEECH TO TEXT
 # ----------------------
 if selected == "Speech to Text":
-    st.header("🎙️ Speech to Text")
+    st.header("🎙️ Speech to Text (Browser Microphone)")
+    
+    # Language selection
     lang = st.selectbox("Select language", ("en-EN", "ko-KR", "ja-JP", "zh-CN"))
-    if st.button("Recognize"):
-        r = sr.Recognizer()
-        with sr.Microphone() as source:
-            notice = st.text("Say something...")
-            speech = r.listen(source)
-        try:
-            audio = r.recognize_google(speech, language=lang)
-            notice.empty()
-            st.code(audio, language='txt')
-        except sr.UnknownValueError:
-            notice.empty()
-            st.code("❌ Could not understand your speech.", language='txt')
-        except sr.RequestError as e:
-            notice.empty()
-            st.code(f"⚠️ Request Error: {e}", language='txt')
+
+    # Start WebRTC audio streaming
+    webrtc_ctx = webrtc_streamer(
+        key="speech-to-text",
+        mode=WebRtcMode.SENDONLY,
+        audio_processor_factory=SpeechToTextProcessor,
+        media_stream_constraints={"audio": True, "video": False},
+        async_processing=True,
+    )
+
+    if webrtc_ctx.audio_processor:
+        st.subheader("📝 Transcription:")
+        st.text(webrtc_ctx.audio_processor.text)
 
 # ----------------------
 # ASL DETECTION
