@@ -7,3 +7,5 @@ streamlit-option-menu>=0.3.6
 streamlit-webrtc>=0.47.7
 av>=10.0.0
 numpy>=1.24.0
+torch>=2.0.1,<2.3
+torchvision>=0.15.2,<0.16
