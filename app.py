@@ -1,22 +1,38 @@
-# streamlit run app.py
-
+# app.py
 import streamlit as st
 import cv2
 import math
-from ultralytics import YOLO
-import speech_recognition as sr
-import random
-from streamlit_option_menu import option_menu
 import time
+import random
+import os
+from ultralytics import YOLO
+from streamlit_option_menu import option_menu
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 import av
+import urllib.request
+from PIL import Image
+import numpy as np
+import speech_recognition as sr
+
+# ----------------------
+# Ensure YOLO model exists
+# ----------------------
+MODEL_PATH = "best-lite.pt"
+MODEL_URL = "https://your-storage.com/best-lite.pt"  # <-- replace with your actual URL if using cloud
+
+if not os.path.exists(MODEL_PATH):
+    st.warning("Downloading YOLO model, please wait...")
+    urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
+    st.success("Model downloaded!")
+
+# Load YOLO model
+model = YOLO(MODEL_PATH)
 
 # ASL Class Names
 classNames = [chr(i) for i in range(65, 91)]  # A-Z
-model = YOLO("best-lite.pt")  # Load once globally
 
 # ----------------------
-# Custom Video Transformer for ASL Detection
+# Custom Video Transformer
 # ----------------------
 class ASLTransformer(VideoTransformerBase):
     def __init__(self):
@@ -52,7 +68,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Sidebar option menu
+st.title("ASL Translator Studio 👌")
+
+# ----------------------
+# Sidebar Menu
+# ----------------------
 with st.sidebar:
     selected = option_menu(
         "Menu",
@@ -61,6 +81,9 @@ with st.sidebar:
         menu_icon="cast",
         default_index=0,
     )
+
+    # Choose mode (Live or Picture)
+    mode_choice = st.radio("Mode", ["Live", "Picture"], index=0)
 
 # ----------------------
 # SPEECH TO TEXT
@@ -88,36 +111,37 @@ if selected == "Speech to Text":
 # ASL DETECTION
 # ----------------------
 elif selected == "ASL Detection":
-    st.header("🖐️ Real-time ASL Detection")
-    mode = st.radio("Choose mode:", ["Live", "Picture"])
-    if mode == "Live":
+    st.header("🖐️ ASL Detection")
+
+    if mode_choice == "Live":
         st.write("Allow access to your webcam below 👇")
         webrtc_streamer(key="asl-detect", video_transformer_factory=ASLTransformer)
-    else:  # Picture mode
-        uploaded_file = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"])
+    else:
+        uploaded_file = st.file_uploader("Upload a picture for ASL detection", type=["jpg", "png", "jpeg"])
         if uploaded_file:
-            file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-            img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            results = model(img)
+            img = Image.open(uploaded_file).convert("RGB")
+            img_array = np.array(img)
+            results = model(img_array)
+            detected_letters = []
+
             for r in results:
                 boxes = r.boxes
                 for box in boxes:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
                     cls = int(box.cls[0])
-                    detected_letter = classNames[cls]
-                    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(img, detected_letter, (x1, y1 - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            st.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), caption=f"Detected: {detected_letter}")
+                    detected_letters.append(classNames[cls])
+            st.image(img, caption="Uploaded Image", use_column_width=True)
+            if detected_letters:
+                st.success(f"Detected letters: {', '.join(detected_letters)}")
+            else:
+                st.info("No letters detected.")
 
 # ----------------------
 # PRACTICE MODE
 # ----------------------
 elif selected == "Practice Mode":
     st.header("🧠 ASL Practice Mode")
-    mode = st.radio("Choose mode:", ["Live", "Picture"])
-    
-    # Session state
+
+    # Session state setup
     if "target_letter" not in st.session_state:
         st.session_state.target_letter = random.choice(classNames)
     if "score" not in st.session_state:
@@ -128,59 +152,52 @@ elif selected == "Practice Mode":
         st.session_state.last_update_time = time.time()
     if "detected_letter" not in st.session_state:
         st.session_state.detected_letter = None
-    if "output_placeholder" not in st.session_state:
-        st.session_state.output_placeholder = st.empty()
 
     st.subheader(f"👉 Try signing this letter: **{st.session_state.target_letter}**")
+
     if st.button("🔄 Reset Score"):
         st.session_state.score = 0
         st.session_state.attempts = 0
 
-    if mode == "Live":
-        ctx = webrtc_streamer(key="asl-practice", video_transformer_factory=ASLTransformer)
+    if mode_choice == "Live":
+        ctx = webrtc_streamer(key="practice-live", video_transformer_factory=ASLTransformer)
         if ctx.video_transformer:
             current_time = time.time()
             detected_letter = ctx.video_transformer.last_letter
             if detected_letter and (current_time - st.session_state.last_update_time) >= 10:
                 st.session_state.attempts += 1
                 st.session_state.detected_letter = detected_letter
-                with st.session_state.output_placeholder.container():
-                    if detected_letter == st.session_state.target_letter:
-                        st.session_state.score += 1
-                        st.success(f"✅ Correct! You signed: {detected_letter}")
-                        st.session_state.target_letter = random.choice(classNames)
-                    else:
-                        st.info(f"✋ Detected: {detected_letter}. Try again.")
-                    accuracy = (st.session_state.score / st.session_state.attempts) * 100
-                    st.metric("🎯 Accuracy", f"{accuracy:.1f}%")
-                    st.write(f"Attempts: {st.session_state.attempts} | Correct: {st.session_state.score}")
-                st.session_state.last_update_time = current_time
-    else:  # Picture mode
-        uploaded_file = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"])
-        if uploaded_file:
-            import numpy as np
-            file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-            img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            results = model(img)
-            detected_letter = None
-            for r in results:
-                boxes = r.boxes
-                for box in boxes:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    cls = int(box.cls[0])
-                    detected_letter = classNames[cls]
-                    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(img, detected_letter, (x1, y1 - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            st.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-            if detected_letter:
-                st.session_state.attempts += 1
+
                 if detected_letter == st.session_state.target_letter:
                     st.session_state.score += 1
                     st.success(f"✅ Correct! You signed: {detected_letter}")
                     st.session_state.target_letter = random.choice(classNames)
                 else:
                     st.info(f"✋ Detected: {detected_letter}. Try again.")
+
+                accuracy = (st.session_state.score / st.session_state.attempts) * 100
+                st.metric("🎯 Accuracy", f"{accuracy:.1f}%")
+                st.write(f"Attempts: {st.session_state.attempts} | Correct: {st.session_state.score}")
+                st.session_state.last_update_time = current_time
+    else:
+        uploaded_file = st.file_uploader("Upload a picture to practice", type=["jpg", "png", "jpeg"])
+        if uploaded_file:
+            img = Image.open(uploaded_file).convert("RGB")
+            img_array = np.array(img)
+            results = model(img_array)
+            detected_letters = []
+            for r in results:
+                boxes = r.boxes
+                for box in boxes:
+                    cls = int(box.cls[0])
+                    detected_letters.append(classNames[cls])
+            if detected_letters:
+                detected_letter = detected_letters[0]
+                st.success(f"Detected letter: {detected_letter}")
+                st.session_state.attempts += 1
+                if detected_letter == st.session_state.target_letter:
+                    st.session_state.score += 1
+                    st.session_state.target_letter = random.choice(classNames)
                 accuracy = (st.session_state.score / st.session_state.attempts) * 100
                 st.metric("🎯 Accuracy", f"{accuracy:.1f}%")
                 st.write(f"Attempts: {st.session_state.attempts} | Correct: {st.session_state.score}")
@@ -190,67 +207,63 @@ elif selected == "Practice Mode":
 # ----------------------
 elif selected == "Game Mode":
     st.header("🎮 ASL Game Mode")
-    mode = st.radio("Choose mode:", ["Live", "Picture"])
-    duration = st.number_input("Game Duration (seconds)", min_value=10, max_value=300, value=30, step=5)
 
-    if "game_start_time" not in st.session_state:
-        st.session_state.game_start_time = None
+    # Game settings
     if "game_score" not in st.session_state:
         st.session_state.game_score = 0
     if "game_letter" not in st.session_state:
         st.session_state.game_letter = random.choice(classNames)
     if "game_last_time" not in st.session_state:
-        st.session_state.game_last_time = None
-    if "game_output" not in st.session_state:
-        st.session_state.game_output = st.empty()
-
-    st.subheader(f"👉 Show this letter: **{st.session_state.game_letter}**")
-    if st.button("Start Game"):
-        st.session_state.game_start_time = time.time()
         st.session_state.game_last_time = time.time()
-        st.session_state.game_score = 0
+    if "game_start_time" not in st.session_state:
+        st.session_state.game_start_time = time.time()
+    if "game_duration" not in st.session_state:
+        st.session_state.game_duration = 30
+    if "game_detected_letter" not in st.session_state:
+        st.session_state.game_detected_letter = None
 
-    if st.session_state.game_start_time:
-        elapsed = time.time() - st.session_state.game_start_time
-        if elapsed <= duration:
-            if mode == "Live":
-                ctx = webrtc_streamer(key="game-live", video_transformer_factory=ASLTransformer)
-                if ctx.video_transformer:
-                    detected_letter = ctx.video_transformer.last_letter
-                    current_time = time.time()
-                    # Check if letter changes every 5 seconds or if correct
-                    if detected_letter:
-                        if detected_letter == st.session_state.game_letter or (current_time - st.session_state.game_last_time) >= 5:
-                            if detected_letter == st.session_state.game_letter:
-                                st.session_state.game_score += 1
-                            st.session_state.game_letter = random.choice(classNames)
-                            st.session_state.game_last_time = current_time
-                            with st.session_state.game_output.container():
-                                st.metric("Score", st.session_state.game_score)
-                                st.subheader(f"👉 Show this letter: **{st.session_state.game_letter}**")
-            else:  # Picture mode
-                uploaded_file = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"])
-                if uploaded_file:
-                    import numpy as np
-                    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-                    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-                    results = model(img)
-                    detected_letter = None
-                    for r in results:
-                        boxes = r.boxes
-                        for box in boxes:
-                            x1, y1, x2, y2 = map(int, box.xyxy[0])
-                            cls = int(box.cls[0])
-                            detected_letter = classNames[cls]
-                    if detected_letter:
-                        current_time = time.time()
-                        if detected_letter == st.session_state.game_letter or (current_time - st.session_state.game_last_time) >= 5:
-                            if detected_letter == st.session_state.game_letter:
-                                st.session_state.game_score += 1
-                            st.session_state.game_letter = random.choice(classNames)
-                            st.session_state.game_last_time = current_time
-                            with st.session_state.game_output.container():
-                                st.metric("Score", st.session_state.game_score)
-                                st.subheader(f"👉 Show this letter: **{st.session_state.game_letter}**")
-        else:
-            st.success(f"Game over! Your final score: {st.session_state.game_score}")
+    game_time = st.number_input("Game Duration (seconds)", min_value=10, max_value=120, value=30, step=5)
+    st.session_state.game_duration = game_time
+
+    st.subheader(f"Current Letter: **{st.session_state.game_letter}**")
+    st.write(f"Score: {st.session_state.game_score}")
+
+    if mode_choice == "Live":
+        ctx = webrtc_streamer(key="game-live", video_transformer_factory=ASLTransformer)
+        if ctx.video_transformer:
+            current_time = time.time()
+            detected_letter = ctx.video_transformer.last_letter
+            elapsed_time = current_time - st.session_state.game_start_time
+
+            # Game over
+            if elapsed_time > st.session_state.game_duration:
+                st.success(f"Game Over! Final Score: {st.session_state.game_score}")
+            else:
+                if detected_letter and (current_time - st.session_state.game_last_time) >= 0:
+                    st.session_state.game_detected_letter = detected_letter
+                    if detected_letter == st.session_state.game_letter:
+                        st.session_state.game_score += 1
+                        st.session_state.game_letter = random.choice(classNames)
+                        st.session_state.game_last_time = current_time
+                    elif (current_time - st.session_state.game_last_time) >= 5:
+                        st.session_state.game_letter = random.choice(classNames)
+                        st.session_state.game_last_time = current_time
+    else:
+        uploaded_file = st.file_uploader("Upload a picture for the game", type=["jpg", "png", "jpeg"])
+        if uploaded_file:
+            img = Image.open(uploaded_file).convert("RGB")
+            img_array = np.array(img)
+            results = model(img_array)
+            detected_letters = []
+            for r in results:
+                boxes = r.boxes
+                for box in boxes:
+                    cls = int(box.cls[0])
+                    detected_letters.append(classNames[cls])
+            if detected_letters:
+                detected_letter = detected_letters[0]
+                st.session_state.game_detected_letter = detected_letter
+                if detected_letter == st.session_state.game_letter:
+                    st.session_state.game_score += 1
+                    st.session_state.game_letter = random.choice(classNames)
+                    st.session_state.game_last_time = time.time()
