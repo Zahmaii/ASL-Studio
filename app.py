@@ -20,7 +20,7 @@ model = YOLO("best-lite.pt")  # Load once globally
 # Custom Video Transformer for ASL Detection
 # ----------------------
 class ASLTransformer(VideoTransformerBase):
-    def _init_(self):
+    def __init__(self):  # <-- fixed from _init_
         self.last_letter = None
 
     def transform(self, frame):
@@ -191,4 +191,4 @@ elif selected == "Practice Mode":
             st.write(f"Attempts: {st.session_state.attempts} | Correct: {st.session_state.score}")
 
             # Update the last update time
-            st.session_state.last_update_time = current_time
+            st.session_state.last_update_time = current_time  # ✅ fixed
