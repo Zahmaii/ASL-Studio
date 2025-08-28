@@ -6,3 +6,4 @@ streamlit-option-menu>=0.3.6
 streamlit-webrtc>=0.47.7
 av>=10.0.0
 numpy>=1.24.0
+pygame>=2.5.2
