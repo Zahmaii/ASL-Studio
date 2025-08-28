@@ -61,8 +61,8 @@ st.title("ASL Translator Studio 👌")
 with st.sidebar:
     selected = option_menu(
         "Menu",
-        ["Speech to Text", "ASL Detection", "Practice Mode", "Sentence Builder"],
-        icons=["mic", "hand-index-thumb", "clipboard-check", "align-middle"],
+        ["Speech to Text", "ASL Detection", "Practice Mode", "Sentence Builder", "Game Mode"],
+        icons=["mic", "hand-index-thumb", "clipboard-check", "align-middle", "controller"],
         menu_icon="cast",
         default_index=0,
     )
@@ -192,3 +192,80 @@ elif selected == "Practice Mode":
 
             # Update the last update time
             st.session_state.last_update_time = current_time  # ✅ fixed
+# ----------------------
+# GAME MODE
+# ----------------------
+elif selected == "Game Mode":
+    st.header("🎮 ASL Game Mode")
+
+    # Choose duration
+    game_duration = st.selectbox("Select game duration (seconds)", [30, 60, 90], index=0)
+
+    # Initialize session state
+    if "game_running" not in st.session_state:
+        st.session_state.game_running = False
+    if "game_start_time" not in st.session_state:
+        st.session_state.game_start_time = None
+    if "game_score" not in st.session_state:
+        st.session_state.game_score = 0
+    if "game_attempts" not in st.session_state:
+        st.session_state.game_attempts = 0
+    if "game_target_letter" not in st.session_state:
+        st.session_state.game_target_letter = random.choice(classNames)
+    if "game_last_change_time" not in st.session_state:
+        st.session_state.game_last_change_time = time.time()
+
+    # Start button
+    if st.button("▶ Start Game"):
+        st.session_state.game_running = True
+        st.session_state.game_start_time = time.time()
+        st.session_state.game_score = 0
+        st.session_state.game_attempts = 0
+        st.session_state.game_target_letter = random.choice(classNames)
+        st.session_state.game_last_change_time = time.time()
+
+    # Run game
+    if st.session_state.game_running:
+        st.subheader(f"👉 Sign this letter: *{st.session_state.game_target_letter}*")
+
+        ctx = webrtc_streamer(key="asl-game", video_transformer_factory=ASLTransformer)
+
+        if ctx.video_transformer:
+            current_time = time.time()
+            elapsed_time = current_time - st.session_state.game_start_time
+
+            if elapsed_time < game_duration:
+                detected_letter = ctx.video_transformer.last_letter
+
+                # If correct letter detected
+                if detected_letter == st.session_state.game_target_letter:
+                    st.session_state.game_score += 1
+                    st.session_state.game_attempts += 1
+                    st.success(f"✅ Correct! You signed {detected_letter}")
+                    st.session_state.game_target_letter = random.choice(classNames)
+                    st.session_state.game_last_change_time = current_time
+                    ctx.video_transformer.last_letter = None  # reset
+                else:
+                    # If 5 seconds passed without correct detection → change letter
+                    if (current_time - st.session_state.game_last_change_time) >= 5:
+                        st.session_state.game_attempts += 1
+                        st.info(f"⌛ Time's up for {st.session_state.game_target_letter}. Next letter!")
+                        st.session_state.game_target_letter = random.choice(classNames)
+                        st.session_state.game_last_change_time = current_time
+
+                # Show live score
+                st.metric("Score", st.session_state.game_score)
+                st.write(f"Attempts: {st.session_state.game_attempts}")
+
+                # Live timer
+                remaining = int(game_duration - elapsed_time)
+                st.write(f"⏳ Time left: {remaining} seconds")
+
+            else:
+                # Game over
+                st.session_state.game_running = False
+                st.subheader("🏁 Game Over!")
+                accuracy = (st.session_state.game_score / st.session_state.game_attempts * 100) if st.session_state.game_attempts > 0 else 0
+                st.success(f"Final Score: {st.session_state.game_score}")
+                st.metric("🎯 Accuracy", f"{accuracy:.1f}%")
+
