@@ -4,23 +4,23 @@ import streamlit as st
 import cv2
 import math
 from ultralytics import YOLO
+import speech_recognition as sr
 import random
 from streamlit_option_menu import option_menu
 import time
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, AudioProcessorBase, WebRtcMode
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 import av
-import numpy as np
-import speech_recognition as sr
 
 # ASL Class Names
 classNames = [chr(i) for i in range(65, 91)]  # A-Z
 model = YOLO("best-lite.pt")  # Load once globally
 
+
 # ----------------------
 # Custom Video Transformer for ASL Detection
 # ----------------------
 class ASLTransformer(VideoTransformerBase):
-    def __init__(self):
+    def _init_(self):
         self.last_letter = None
 
     def transform(self, frame):
@@ -43,31 +43,6 @@ class ASLTransformer(VideoTransformerBase):
 
         return img
 
-# ----------------------
-# Custom Audio Processor for Speech-to-Text
-# ----------------------
-class SpeechToTextProcessor(AudioProcessorBase):
-    def __init__(self) -> None:
-        self.recognizer = sr.Recognizer()
-        self.text = "Listening..."
-
-    def recv_audio(self, frame: av.AudioFrame) -> av.AudioFrame:
-        # Convert to numpy array
-        audio = frame.to_ndarray()
-        # Convert stereo to mono
-        if audio.ndim > 1:
-            audio = np.mean(audio, axis=1).astype(np.int16)
-
-        # Feed to SpeechRecognition
-        try:
-            audio_data = sr.AudioData(audio.tobytes(), frame.sample_rate, 2)
-            self.text = self.recognizer.recognize_google(audio_data)
-        except sr.UnknownValueError:
-            self.text = "Could not understand audio"
-        except sr.RequestError:
-            self.text = "API unavailable"
-
-        return frame
 
 # ----------------------
 # Streamlit Page Config
@@ -86,8 +61,8 @@ st.title("ASL Translator Studio 👌")
 with st.sidebar:
     selected = option_menu(
         "Menu",
-        ["Speech to Text", "ASL Detection", "Practice Mode"],
-        icons=["mic", "hand-index-thumb", "clipboard-check"],
+        ["Speech to Text", "ASL Detection", "Practice Mode", "Sentence Builder"],
+        icons=["mic", "hand-index-thumb", "clipboard-check", "align-middle"],
         menu_icon="cast",
         default_index=0,
     )
@@ -96,31 +71,75 @@ with st.sidebar:
 # SPEECH TO TEXT
 # ----------------------
 if selected == "Speech to Text":
-    st.header("🎙️ Speech to Text (Browser Microphone)")
-    
-    # Language selection
+    st.header("🎙 Speech to Text")
     lang = st.selectbox("Select language", ("en-EN", "ko-KR", "ja-JP", "zh-CN"))
-
-    # Start WebRTC audio streaming
-    webrtc_ctx = webrtc_streamer(
-        key="speech-to-text",
-        mode=WebRtcMode.SENDONLY,
-        audio_processor_factory=SpeechToTextProcessor,
-        media_stream_constraints={"audio": True, "video": False},
-        async_processing=True,
-    )
-
-    if webrtc_ctx.audio_processor:
-        st.subheader("📝 Transcription:")
-        st.text(webrtc_ctx.audio_processor.text)
+    if st.button("Recognize"):
+        r = sr.Recognizer()
+        with sr.Microphone() as source:
+            notice = st.text("Say something...")
+            speech = r.listen(source)
+        try:
+            audio = r.recognize_google(speech, language=lang)
+            notice.empty()
+            st.code(audio, language='txt')
+        except sr.UnknownValueError:
+            notice.empty()
+            st.code("❌ Could not understand your speech.", language='txt')
+        except sr.RequestError as e:
+            notice.empty()
+            st.code(f"⚠ Request Error: {e}", language='txt')
 
 # ----------------------
 # ASL DETECTION
 # ----------------------
 elif selected == "ASL Detection":
-    st.header("🖐️ Real-time ASL Detection")
+    st.header("🖐 Real-time ASL Detection")
     st.write("Allow access to your webcam below 👇")
     webrtc_streamer(key="asl-detect", video_transformer_factory=ASLTransformer)
+
+# ----------------------
+# ASL DETECTION (with Sentence Builder)
+# ----------------------
+if selected == "Sentence Builder":
+    st.header("🖐 Real-time ASL Detection with Sentence Builder")
+    st.write("Allow access to your webcam below 👇")
+
+    # Initialize sentence state
+    if "sentence" not in st.session_state:
+        st.session_state.sentence = ""
+    if "last_letter_time" not in st.session_state:
+        st.session_state.last_letter_time = time.time()
+
+    ctx = webrtc_streamer(key="asl-detect", video_transformer_factory=ASLTransformer)
+
+    # Live-updating placeholder
+    sentence_placeholder = st.empty()
+
+    if ctx.video_transformer:
+        while ctx.state.playing:   # loop while webcam is active
+            detected_letter = ctx.video_transformer.last_letter
+            current_time = time.time()
+
+            # Add letter if enough time has passed (avoid duplicate spam)
+            if detected_letter and (current_time - st.session_state.last_letter_time) > 2:
+                st.session_state.sentence += detected_letter
+                st.session_state.last_letter_time = current_time
+
+                # 🔑 reset so the same letter is not spammed
+                ctx.video_transformer.last_letter = None
+
+            # Update sentence in UI
+            sentence_placeholder.success(st.session_state.sentence)
+            time.sleep(0.1)  # short delay to avoid busy loop
+
+    # Show final sentence
+    st.subheader("✏ Built Sentence")
+    st.success(st.session_state.sentence)
+
+    # 🗑 Clear All button
+    if st.button("🗑 Clear All"):
+        st.session_state.sentence = ""
+
 
 # ----------------------
 # PRACTICE MODE
@@ -141,7 +160,7 @@ elif selected == "Practice Mode":
         st.session_state.detected_letter = None
 
     # Show target letter
-    st.subheader(f"👉 Try signing this letter: **{st.session_state.target_letter}**")
+    st.subheader(f"👉 Try signing this letter: *{st.session_state.target_letter}*")
 
     # Reset button
     if st.button("🔄 Reset Score"):
@@ -172,4 +191,4 @@ elif selected == "Practice Mode":
             st.write(f"Attempts: {st.session_state.attempts} | Correct: {st.session_state.score}")
 
             # Update the last update time
-            st.session_state.last_update_time = current_time
+            st.session_state.last_update_time = current_time
