@@ -55,12 +55,12 @@ st.set_page_config(
 )
 
 # Title
-st.title("ASL Translator Studio 👌")
+# st.title("ASL Translator Studio 👌")
 
 # Sidebar option menu
 with st.sidebar:
     selected = option_menu(
-        "Menu",
+        "ASL Translator Studio 👌",
         ["Speech to Text", "ASL Detection", "Practice Mode", "Sentence Builder", "Game Mode"],
         icons=["mic", "hand-index-thumb", "clipboard-check", "align-middle", "controller"],
         menu_icon="cast",
@@ -258,3 +258,4 @@ elif selected == "Game Mode":
 
             st.metric("🏆 Score", st.session_state.score)
             st.metric("📊 Attempts", st.session_state.attempts)
+
