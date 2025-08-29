@@ -6,11 +6,11 @@ import math
 from ultralytics import YOLO
 import speech_recognition as sr
 import numpy as np
-
 import random
 from streamlit_option_menu import option_menu
 import time
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode, ClientSettings
+import streamlit as st
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
 import av
 import queue
 import threading
@@ -120,6 +120,7 @@ if selected == "Speech to Text":
                 result_placeholder.error(f"⚠ API Error: {e}")
         else:
             result_placeholder.error("❌ No audio recorded.")
+
 # ----------------------
 # ASL DETECTION
 # ----------------------
@@ -289,3 +290,4 @@ elif selected == "Game Mode":
 
             st.metric("🏆 Score", st.session_state.score)
             st.metric("📊 Attempts", st.session_state.attempts)
+
