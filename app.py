@@ -94,8 +94,8 @@ if selected == "Speech to Text":
 # ASL DETECTION
 # ----------------------
 elif selected == "ASL Detection":
-    st.image("ASL_Image.jpg", caption="American Sign Language Alphabet", use_column_width=True)
     st.header("🖐 Real-time ASL Detection")
+    st.image("ASL_Image.jpg", caption="American Sign Language Alphabet", use_column_width=True)
     st.write("Allow access to your webcam below 👇")
     webrtc_streamer(key="asl-detect", video_transformer_factory=ASLTransformer)
 
@@ -259,6 +259,7 @@ elif selected == "Game Mode":
 
             st.metric("🏆 Score", st.session_state.score)
             st.metric("📊 Attempts", st.session_state.attempts)
+
 
 
 
