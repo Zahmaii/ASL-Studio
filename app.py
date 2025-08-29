@@ -5,10 +5,12 @@ import cv2
 import math
 from ultralytics import YOLO
 import speech_recognition as sr
+import numpy as np
+
 import random
 from streamlit_option_menu import option_menu
 import time
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode, ClientSettings
 import av
 import queue
 import threading
@@ -73,49 +75,51 @@ with st.sidebar:
 # SPEECH TO TEXT
 # ----------------------
 if selected == "Speech to Text":
-    st.header("🎙 Speech to Text (Browser Mic)")
+    st.header("🎙 Speech to Text (5-second recording)")
 
     lang = st.selectbox("Select language", ("en-EN", "ko-KR", "ja-JP", "zh-CN"))
     result_placeholder = st.empty()
 
-    audio_queue = queue.Queue()
+    # Start button
+    if st.button("🎤 Start Recording (5 seconds)"):
+        st.info("Recording... Speak now!")
 
-    # Audio processor for webrtc
-    class AudioProcessor:
-        def __init__(self):
-            self.recognizer = sr.Recognizer()
+        # Start WebRTC for mic input
+        ctx = webrtc_streamer(
+            key="speech-to-text",
+            mode=WebRtcMode.SENDONLY,
+            media_stream_constraints={"audio": True, "video": False},
+        )
 
-        def recv_audio(self, frame):
-            audio_array = frame.to_ndarray()
-            audio_queue.put(audio_array)
-            return frame
+        audio_frames = []
 
-    ctx = webrtc_streamer(
-        key="speech-to-text",
-        mode=WebRtcMode.SENDONLY,   # ✅ FIXED
-        audio_receiver_size=256,
-        media_stream_constraints={"audio": True, "video": False},
-    )
-
-    if ctx.state.playing:
-        st.info("🎤 Recording... speak now")
-
-        def transcribe_worker():
-            while True:
-                audio_chunk = audio_queue.get()
-                if audio_chunk is None:
-                    break
+        start_time = time.time()
+        while time.time() - start_time < 5:
+            if ctx.audio_receiver:
                 try:
-                    audio_bytes = audio_chunk.tobytes()
-                    audio = sr.AudioData(audio_bytes, 16000, 2)
-                    text = sr.Recognizer().recognize_google(audio, language=lang)
-                    result_placeholder.success(f"✅ Recognized: {text}")
-                except sr.UnknownValueError:
+                    frames = ctx.audio_receiver.get_frames(timeout=1)
+                    for frame in frames:
+                        audio_frames.append(frame.to_ndarray())
+                except:
                     pass
-                except sr.RequestError as e:
-                    result_placeholder.error(f"⚠ API Error: {e}")
 
-        threading.Thread(target=transcribe_worker, daemon=True).start()
+        st.info("Recording finished! Processing...")
+
+        # Convert collected frames to AudioData for recognition
+        if audio_frames:
+            audio_np = np.concatenate(audio_frames)
+            audio_bytes = audio_np.tobytes()
+            audio_data = sr.AudioData(audio_bytes, 16000, 2)
+            recognizer = sr.Recognizer()
+            try:
+                text = recognizer.recognize_google(audio_data, language=lang)
+                result_placeholder.success(f"✅ You said: {text}")
+            except sr.UnknownValueError:
+                result_placeholder.error("❌ Could not understand your speech.")
+            except sr.RequestError as e:
+                result_placeholder.error(f"⚠ API Error: {e}")
+        else:
+            result_placeholder.error("❌ No audio recorded.")
 # ----------------------
 # ASL DETECTION
 # ----------------------
@@ -285,11 +289,3 @@ elif selected == "Game Mode":
 
             st.metric("🏆 Score", st.session_state.score)
             st.metric("📊 Attempts", st.session_state.attempts)
-
-
-
-
-
-
-
-
