@@ -10,6 +10,8 @@ from streamlit_option_menu import option_menu
 import time
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 import av
+import queue
+import threading
 
 # ASL Class Names
 classNames = [chr(i) for i in range(65, 91)]  # A-Z
@@ -71,25 +73,53 @@ with st.sidebar:
 # SPEECH TO TEXT
 # ----------------------
 if selected == "Speech to Text":
-    st.header("🎙 Speech to Text")
+    st.header("🎙 Speech to Text (Browser Mic)")
+
     lang = st.selectbox("Select language", ("en-EN", "ko-KR", "ja-JP", "zh-CN"))
+    result_placeholder = st.empty()
 
-    uploaded_file = st.file_uploader("Upload an audio file", type=["wav", "mp3"])
+    audio_queue = queue.Queue()
 
-    if uploaded_file is not None:
-        r = sr.Recognizer()
-        with sr.AudioFile(uploaded_file) as source:
-            st.info("🔊 Processing audio...")
-            audio_data = r.record(source)
+    # Audio processor for webrtc
+    class AudioProcessor:
+        def __init__(self):
+            self.recognizer = sr.Recognizer()
+            self.audio_data = None
 
-        try:
-            audio = r.recognize_google(audio_data, language=lang)
-            st.success("✅ Transcription complete:")
-            st.code(audio, language='txt')
-        except sr.UnknownValueError:
-            st.error("❌ Could not understand your speech.")
-        except sr.RequestError as e:
-            st.error(f"⚠ Request Error: {e}")
+        def recv_audio(self, frame):
+            # Convert audio to numpy
+            audio_array = frame.to_ndarray()
+            audio_queue.put(audio_array)
+            return frame
+
+    ctx = webrtc_streamer(
+        key="speech-to-text",
+        mode="sendonly",
+        audio_receiver_size=256,
+        media_stream_constraints={"audio": True, "video": False},
+    )
+
+    if ctx.state.playing:
+        st.info("🎤 Recording... speak now")
+
+        def transcribe_worker():
+            while True:
+                audio_chunk = audio_queue.get()
+                if audio_chunk is None:
+                    break
+                try:
+                    # Convert numpy to AudioData for recognition
+                    audio_bytes = audio_chunk.tobytes()
+                    audio = sr.AudioData(audio_bytes, 16000, 2)
+                    text = sr.Recognizer().recognize_google(audio, language=lang)
+                    result_placeholder.success(f"✅ Recognized: {text}")
+                except sr.UnknownValueError:
+                    pass
+                except sr.RequestError as e:
+                    result_placeholder.error(f"⚠ API Error: {e}")
+
+        threading.Thread(target=transcribe_worker, daemon=True).start()
+
             
 # ----------------------
 # ASL DETECTION
@@ -260,6 +290,7 @@ elif selected == "Game Mode":
 
             st.metric("🏆 Score", st.session_state.score)
             st.metric("📊 Attempts", st.session_state.attempts)
+
 
 
 
