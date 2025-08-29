@@ -20,7 +20,8 @@ This project allows users to learn and practice ASL letters (A–Z) in real time
 
 ```
 .
-├── app.py              # Main Streamlit application
+├── app.py              # Cloud Enviroment Deployment
+├── draft.py            # Local Enviroment Deployment
 ├── requirements.txt    # Python Dependencies
 ├── asl_detecton.ipynb  # ASL Model Building
 ├── best-lite.pt        # Pretrained YOLO model for ASL (Included in Repo)
