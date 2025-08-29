@@ -73,23 +73,24 @@ with st.sidebar:
 if selected == "Speech to Text":
     st.header("🎙 Speech to Text")
     lang = st.selectbox("Select language", ("en-EN", "ko-KR", "ja-JP", "zh-CN"))
-    if st.button("Recognize"):
+
+    uploaded_file = st.file_uploader("Upload an audio file", type=["wav", "mp3"])
+
+    if uploaded_file is not None:
         r = sr.Recognizer()
-        with sr.Microphone() as source:
-            notice = st.text("Say something...")
-            speech = r.listen(source)
+        with sr.AudioFile(uploaded_file) as source:
+            st.info("🔊 Processing audio...")
+            audio_data = r.record(source)
+
         try:
-            audio = r.recognize_google(speech, language=lang)
-            notice.empty()
+            audio = r.recognize_google(audio_data, language=lang)
+            st.success("✅ Transcription complete:")
             st.code(audio, language='txt')
         except sr.UnknownValueError:
-            notice.empty()
-            st.code("❌ Could not understand your speech.", language='txt')
+            st.error("❌ Could not understand your speech.")
         except sr.RequestError as e:
-            notice.empty()
-            st.code(f"⚠ Request Error: {e}", language='txt')
-
-
+            st.error(f"⚠ Request Error: {e}")
+            
 # ----------------------
 # ASL DETECTION
 # ----------------------
@@ -259,6 +260,7 @@ elif selected == "Game Mode":
 
             st.metric("🏆 Score", st.session_state.score)
             st.metric("📊 Attempts", st.session_state.attempts)
+
 
 
 
