@@ -8,7 +8,7 @@ import speech_recognition as sr
 import random
 from streamlit_option_menu import option_menu
 import time
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, WebRtcMode
 import av
 import queue
 import threading
@@ -84,17 +84,15 @@ if selected == "Speech to Text":
     class AudioProcessor:
         def __init__(self):
             self.recognizer = sr.Recognizer()
-            self.audio_data = None
 
         def recv_audio(self, frame):
-            # Convert audio to numpy
             audio_array = frame.to_ndarray()
             audio_queue.put(audio_array)
             return frame
 
     ctx = webrtc_streamer(
         key="speech-to-text",
-        mode="sendonly",
+        mode=WebRtcMode.SENDONLY,   # ✅ FIXED
         audio_receiver_size=256,
         media_stream_constraints={"audio": True, "video": False},
     )
@@ -108,7 +106,6 @@ if selected == "Speech to Text":
                 if audio_chunk is None:
                     break
                 try:
-                    # Convert numpy to AudioData for recognition
                     audio_bytes = audio_chunk.tobytes()
                     audio = sr.AudioData(audio_bytes, 16000, 2)
                     text = sr.Recognizer().recognize_google(audio, language=lang)
@@ -119,8 +116,6 @@ if selected == "Speech to Text":
                     result_placeholder.error(f"⚠ API Error: {e}")
 
         threading.Thread(target=transcribe_worker, daemon=True).start()
-
-            
 # ----------------------
 # ASL DETECTION
 # ----------------------
@@ -290,6 +285,7 @@ elif selected == "Game Mode":
 
             st.metric("🏆 Score", st.session_state.score)
             st.metric("📊 Attempts", st.session_state.attempts)
+
 
 
 
